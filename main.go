@@ -30,16 +30,49 @@ type Hit struct {
 	T     float64
 }
 
-var NoHit = Hit{nil, 1e9}
+var (
+	NoHit             = Hit{nil, 1e9}
+	SunlightDir       = Vector3{3, 5, 1}.Normalize()
+	SunlightIntensity = 3.0
+)
 
 type Shape interface {
+	// Test if the world space ray hit the object
 	Intersect(Ray) Hit
+	// Given a position in world space compute and return UV coordinates in X & Y components
+	UV(Vector3) Vector3
+	// Given a position in world space return the normal in object space
+	Normal(Vector3) Vector3
 }
 
 type Sphere struct {
 	Origin    Vector3
 	Radius    float64
 	Transform Matrix
+}
+
+type Color struct {
+	R, G, B, A float64
+}
+
+func (c Color) Multiply(f float64) Color {
+	// TODO - why do we have to set A to 255 and not pass it through?
+	// Something to do with premultiplied alpha?
+	return Color{c.R * f, c.G * f, c.B * f, 255}
+}
+
+// Convert the color to color.RGBA and does [0,255] clamping
+func (c Color) Pack() color.RGBA {
+	uR := uint8(clamp(c.R*255, 0, 255))
+	uG := uint8(clamp(c.G*255, 0, 255))
+	uB := uint8(clamp(c.B*255, 0, 255))
+	uA := uint8(clamp(c.A*255, 0, 255))
+
+	return color.RGBA{uR, uG, uB, uA}
+}
+
+func NewColorFromRGBA(r, g, b, a uint32) Color {
+	return Color{float64(r) / 65536, float64(g) / 65536, float64(b) / 65536, float64(a) / 65536}
 }
 
 var _ Shape = &Sphere{}
@@ -100,6 +133,12 @@ func (s Sphere) UV(wp Vector3) Vector3 {
 	return Vector3{u, v, 0}
 }
 
+func (s Sphere) Normal(wp Vector3) Vector3 {
+	p := s.Transform.Inverse().MulPosition(wp)
+	p = p.Sub(s.Origin)
+	return p.Normalize()
+}
+
 // Crude numerical integrator using trapezoidal quadrature, currently unused
 // For now we assume that atmospheric density is constant through atmosphere which
 // means we can avoid numerical integration. At some point should use height relative
@@ -128,12 +167,12 @@ func clamp(x, min, max float64) float64 {
 }
 
 // Nearest neighbor
-func sampleTexture(img image.Image, u, v float64) color.RGBA {
+func sampleTexture(img image.Image, u, v float64) Color {
 	bounds := img.Bounds()
 	x := int(clamp(u, 0, 1) * float64(bounds.Max.X))
 	y := int(clamp(v, 0, 1) * float64(bounds.Max.Y))
 	r, g, b, a := img.At(x, y).RGBA()
-	return color.RGBA{uint8(r), uint8(g), uint8(b), uint8(a)}
+	return NewColorFromRGBA(r, g, b, a)
 }
 
 func main() {
@@ -197,16 +236,19 @@ func main() {
 					// Compute contact point in world space
 					cp := ri.Direction.Multiply(hi.T).Add(ri.Origin)
 					uv := si.UV(cp)
-					// if x == 320 && y == 240 {
-					// 	fmt.Printf("%v %v", uv.X, uv.Y)
-					// }
-					// c = color.RGBA{50, 50, 255, 255}
-					c = sampleTexture(tex, uv.X, uv.Y)
+
+					// Shade the point with directional sunlight
+					n := si.Normal(cp)
+					n = si.Transform.MulDirection(n)
+
+					l := math.Max(0, -n.Dot(SunlightDir)) * SunlightIntensity
+
+					// Apply sunlight amount to earth albedo texture
+					tc := sampleTexture(tex, uv.X, uv.Y)
+					tc = tc.Multiply(l)
+					c = tc.Pack()
 				}
 
-				// if x == 320 && y == 240 {
-				// 	fmt.Printf("%v %v", ho.T, NextFloatUp(ho.T))
-				// }
 				img.SetRGBA(x, y, c)
 			}
 		}

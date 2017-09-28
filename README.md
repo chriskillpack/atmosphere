@@ -25,3 +25,7 @@ Chronological
 05. Rotate the Earth around it's vertical axis
 
 ![05_transforms.png](images/05_transforms.png)
+
+06. Add directional sunlight (white light)
+
+![06_sunlight.png](images/06_sunlight.png)
