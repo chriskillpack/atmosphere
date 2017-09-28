@@ -55,20 +55,18 @@ type Color struct {
 	R, G, B, A float64
 }
 
-func (c Color) Multiply(f float64) Color {
-	// TODO - why do we have to set A to 255 and not pass it through?
-	// Something to do with premultiplied alpha?
-	return Color{c.R * f, c.G * f, c.B * f, 255}
+func (c Color) MultiplyRGB(f float64) Color {
+	return Color{c.R * f, c.G * f, c.B * f, c.A}
 }
 
 // Convert the color to color.RGBA and does [0,255] clamping
-func (c Color) Pack() color.RGBA {
+func (c Color) Pack() color.NRGBA {
 	uR := uint8(clamp(c.R*255, 0, 255))
 	uG := uint8(clamp(c.G*255, 0, 255))
 	uB := uint8(clamp(c.B*255, 0, 255))
 	uA := uint8(clamp(c.A*255, 0, 255))
 
-	return color.RGBA{uR, uG, uB, uA}
+	return color.NRGBA{uR, uG, uB, uA}
 }
 
 func NewColorFromRGBA(r, g, b, a uint32) Color {
@@ -218,19 +216,19 @@ func main() {
 
 				// Does it hit inner sphere?
 				hi := si.Intersect(ri)
-				var c color.RGBA
+				var c color.NRGBA
 				if hi == NoHit {
 					// No, but it will may hit ho again so let's see how far through
 					// the outer sphere the ray travels until it exits
 					ho2 := so.Intersect(ri)
 					if ho2 == NoHit {
 						// Initial contact just grazed the outer atmosphere
-						c = color.RGBA{255, 255, 255, 255}
+						c = color.NRGBA{255, 255, 255, 255}
 					} else {
 						// Find the linear distance travelled across the sphere
 						linDist := math.Min(ho2.T/(EarthAtmosphereHeight*60)*255, 255)
 						ld := uint8(linDist)
-						c = color.RGBA{ld, ld, ld, 255}
+						c = color.NRGBA{ld, ld, ld, 255}
 					}
 				} else {
 					// Compute contact point in world space
@@ -245,11 +243,12 @@ func main() {
 
 					// Apply sunlight amount to earth albedo texture
 					tc := sampleTexture(tex, uv.X, uv.Y)
-					tc = tc.Multiply(l)
+					tc = tc.MultiplyRGB(l)
+
 					c = tc.Pack()
 				}
 
-				img.SetRGBA(x, y, c)
+				img.Set(x, y, c)
 			}
 		}
 	}
