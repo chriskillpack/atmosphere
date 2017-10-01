@@ -29,3 +29,7 @@ Chronological
 06. Add directional sunlight (white light)
 
 ![06_sunlight.png](images/06_sunlight.png)
+
+07. Visualize optical length
+
+![07_sunlight.png](images/07_optical_length.png)
