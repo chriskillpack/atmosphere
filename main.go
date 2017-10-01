@@ -196,16 +196,15 @@ func main() {
 	}
 	f.Close()
 
-	// fmt.Println(numIntegrate(curve, 1.0, 5.0, 4))
-	img := image.NewRGBA(image.Rect(0, 0, 640, 480))
+	img := image.NewRGBA(image.Rect(0, 0, ImageWidth, ImageHeight))
 
 	so := Sphere{Vector3{0, 0, 50}, EarthRadius + EarthAtmosphereHeight, Identity()}
 	si := Sphere{Vector3{0, 0, 50}, EarthRadius, Rotate(Vector3{0, 1, 0}, -3.1)}
 
-	for y := 0; y < 480; y++ {
-		for x := 0; x < 640; x++ {
+	for y := 0; y < ImageHeight; y++ {
+		for x := 0; x < ImageWidth; x++ {
 			var dir Vector3
-			dir.X = (float64(x-ImageWidth/2) / (ImageWidth / 2)) * (float64(ImageWidth) / 480)
+			dir.X = (float64(x-ImageWidth/2) / (ImageWidth / 2)) * (float64(ImageWidth) / ImageHeight)
 			dir.Y = float64(y-ImageHeight/2) / (ImageHeight / 2)
 			dir.Z = 5
 
@@ -265,7 +264,7 @@ func main() {
 			img.Set(x, y, c.Pack())
 		}
 	}
-	of, err := os.Create("./image.png")
+	of, err := os.Create("./out.png")
 	if err != nil {
 		fmt.Printf("Could not create output file: %v", err)
 		return
