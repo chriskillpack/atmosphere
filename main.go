@@ -34,6 +34,11 @@ var (
 	NoHit             = Hit{nil, 1e9}
 	SunlightDir       = Vector3{3, 5, 1}.Normalize()
 	SunlightIntensity = 3.0
+
+	// Extinction coefficients
+	// From http://www.antexel.com/sylefeb/files/LibSL_Nature_Atmosphere.cg
+	RayleighExtinction = Vector3{4.1e-06, 6.93327e-06, 1.43768e-05}
+	MieExtinction      = Vector3{2.3e-06, 2.3e-06, 2.3e-06}
 )
 
 type Shape interface {
@@ -53,6 +58,10 @@ type Sphere struct {
 
 type Color struct {
 	R, G, B, A float64
+}
+
+func (a Color) AddRGB(b Color) Color {
+	return Color{a.R + b.R, a.G + b.G, a.B + b.B, a.A}
 }
 
 func (c Color) MultiplyRGB(f float64) Color {
@@ -200,37 +209,26 @@ func main() {
 			dir.Y = float64(y-ImageHeight/2) / (ImageHeight / 2)
 			dir.Z = 5
 
+			c := Color{0, 0, 0, 1}
 			r := Ray{Vector3{0, 0, -40 * 1000 * 1000}, dir.Normalize()}
+
 			// Does it hit the planet out atmosphere?
 			ho := so.Intersect(r)
-			if ho == NoHit {
-				img.SetRGBA(x, y, color.RGBA{0, 0, 0, 255})
-			} else {
-				// Does it intersect inner sphere?
-
+			if ho != NoHit {
 				// Advance along ray very slightly to avoid intersecting
 				// planet atmosphere again
 				t1 := NextFloatUp(ho.T)
 				// Compute start point for the ray
 				ri := Ray{r.Direction.Multiply(t1).Add(r.Origin), r.Direction}
 
-				// Does it hit inner sphere?
+				var olE float64
+
+				// Does it hit the planet?
 				hi := si.Intersect(ri)
-				var c color.NRGBA
-				if hi == NoHit {
-					// No, but it will may hit ho again so let's see how far through
-					// the outer sphere the ray travels until it exits
-					ho2 := so.Intersect(ri)
-					if ho2 == NoHit {
-						// Initial contact just grazed the outer atmosphere
-						c = color.NRGBA{255, 255, 255, 255}
-					} else {
-						// Find the linear distance travelled across the sphere
-						linDist := math.Min(ho2.T/(EarthAtmosphereHeight*60)*255, 255)
-						ld := uint8(linDist)
-						c = color.NRGBA{ld, ld, ld, 255}
-					}
-				} else {
+				if hi != NoHit {
+					// Optical length calculation ends at the planet
+					olE = hi.T
+
 					// Compute contact point in world space
 					cp := ri.Direction.Multiply(hi.T).Add(ri.Origin)
 					uv := si.UV(cp)
@@ -242,14 +240,29 @@ func main() {
 					l := math.Max(0, -n.Dot(SunlightDir)) * SunlightIntensity
 
 					// Apply sunlight amount to earth albedo texture
-					tc := sampleTexture(tex, uv.X, uv.Y)
-					tc = tc.MultiplyRGB(l)
-
-					c = tc.Pack()
+					c = sampleTexture(tex, uv.X, uv.Y)
+					c = c.MultiplyRGB(l)
+				} else {
+					// Did not hit planet, compute where it hits outer atmosphere
+					ho2 := so.Intersect(ri)
+					if ho2 != NoHit {
+						olE = ho2.T
+					}
+					// If it did not hit then the first ray grazed the atmosphere and we take the end
+					// point to be the same as the start point, 0
 				}
 
-				img.Set(x, y, c)
+				// Compute optical length along the ray and add it into the color for visualization
+				// Using https://developer.nvidia.com/gpugems/GPUGems2/gpugems2_chapter16.html as a guide
+				optLengthFn := func(t float64) float64 {
+					p := ri.Direction.Multiply(t).Add(ri.Origin)
+					h := (p.Sub(si.Origin).Length() - si.Radius) / (so.Radius - si.Radius)
+					return math.Exp(-h / 0.25)
+				}
+				optLength := numIntegrate(optLengthFn, 0, olE, 5) / 500000
+				c = c.AddRGB(Color{optLength, optLength, optLength, 1})
 			}
+			img.Set(x, y, c.Pack())
 		}
 	}
 	of, err := os.Create("./image.png")
