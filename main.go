@@ -35,10 +35,16 @@ var (
 	SunlightDir       = Vector3{3, 5, 1}.Normalize()
 	SunlightIntensity = 3.0
 
-	// Extinction coefficients
-	// From http://www.antexel.com/sylefeb/files/LibSL_Nature_Atmosphere.cg
-	RayleighExtinction = Vector3{4.1e-06, 6.93327e-06, 1.43768e-05}
-	MieExtinction      = Vector3{2.3e-06, 2.3e-06, 2.3e-06}
+	// Rayleight extinction coefficients computed for R, G and B wavelengths.
+	// We use the wavelengths from Hoffman and Preetham of [650, 570, 475]nm and matched
+	// our extinction coefficients to theirs.
+	RayleighExtinction   = Color{6.95265e-06, 1.17572e-05, 2.43797e-05, 0}
+	RayleighDensityScale = 0.25
+
+	// Mie extinction coefficients for R, G and B wavelengths.
+	// These values were taken from Bruneton
+	MieExtinction   = Color{2.3e-06, 2.3e-06, 2.3e-06, 0}
+	MieDensityScale = 0.1
 )
 
 type Shape interface {
@@ -251,15 +257,19 @@ func main() {
 					// point to be the same as the start point, 0
 				}
 
-				// Compute optical length along the ray and add it into the color for visualization
+				// Compute optical length along the ray
 				// Using https://developer.nvidia.com/gpugems/GPUGems2/gpugems2_chapter16.html as a guide
 				optLengthFn := func(t float64) float64 {
 					p := ri.Direction.Multiply(t).Add(ri.Origin)
 					h := (p.Sub(si.Origin).Length() - si.Radius) / (so.Radius - si.Radius)
-					return math.Exp(-h / 0.25)
+					return math.Exp(-h / RayleighDensityScale)
 				}
-				optLength := numIntegrate(optLengthFn, 0, olE, 5) / 500000
-				c = c.AddRGB(Color{optLength, optLength, optLength, 1})
+				optLength := numIntegrate(optLengthFn, 0, olE, 5)
+
+				// Perform extinction due to absorbtion and outscattering
+				c.R = c.R * math.Exp(-RayleighExtinction.R*optLength)
+				c.G = c.G * math.Exp(-RayleighExtinction.G*optLength)
+				c.B = c.B * math.Exp(-RayleighExtinction.B*optLength)
 			}
 			img.Set(x, y, c.Pack())
 		}
