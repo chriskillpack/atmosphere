@@ -152,27 +152,24 @@ func (s Sphere) Normal(wp Vector3) Vector3 {
 	return p.Normalize()
 }
 
-// Crude numerical integrator using trapezoidal quadrature, currently unused
-// For now we assume that atmospheric density is constant through atmosphere which
-// means we can avoid numerical integration. At some point should use height relative
-// density, see Nishita "Display of The Earth Taking into Account Atmospheric Scattering"
-// section 4.2, http://nishitalab.org/user/nis/cdrom/sig93_nis.pdf
+// Numerical integrator using the trapezoidal rule
+// Integrates fn(x) over the domain [a,b] in n steps
 func numIntegrate(fn func(float64) float64, a, b float64, n int) float64 {
-	dx := (b - a) / float64(n)
+	dx := (b - a) / float64(n-1)
 
 	var area float64
 	x := a
 	prevfn := fn(x)
-	for i := 0; i < n; i++ {
+	for i := 1; i < n; i++ {
 		newx := x + dx
 		newfn := fn(newx)
-		area = area + (dx * (prevfn + newfn) / 2)
+		area += prevfn + newfn
 
 		x = newx
 		prevfn = newfn
 	}
 
-	return area
+	return (area * dx) * 0.5
 }
 
 func clamp(x, min, max float64) float64 {
