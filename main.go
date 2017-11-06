@@ -9,7 +9,6 @@ import (
 	"image/png"
 	"math"
 	"os"
-	"unsafe"
 )
 
 const (
@@ -90,23 +89,8 @@ func NewColorFromRGBA(r, g, b, a uint32) Color {
 
 var _ Shape = &Sphere{}
 
-// From PBRT 3rd ed pg 212
-func NextFloatUp(v float64) float64 {
-	if math.IsInf(v, 1) && v > 0 {
-		return v
-	}
-	if v == -0.0 {
-		return 0.0
-	}
-
-	ui := *(*uint64)(unsafe.Pointer(&v))
-	if v >= 0 {
-		ui++
-	} else {
-		ui--
-	}
-
-	return *(*float64)(unsafe.Pointer(&ui))
+func nextFloatUp(v float64) float64 {
+	return math.Nextafter(v, math.Inf(1))
 }
 
 // From https://github.com/fogleman/pt/blob/69e74a07b0af72f1601c64120a866d9a5f432e2f/pt/sphere.go#L26-L43
@@ -219,7 +203,7 @@ func main() {
 			if ho != NoHit {
 				// Advance along ray very slightly to avoid intersecting
 				// planet atmosphere again
-				t1 := NextFloatUp(ho.T)
+				t1 := nextFloatUp(ho.T)
 				// Compute start point for the ray
 				ri := Ray{r.Direction.Multiply(t1).Add(r.Origin), r.Direction}
 
