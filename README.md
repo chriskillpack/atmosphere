@@ -38,6 +38,10 @@ Chronological
 
 ![08_rayleigh_extinction.png](images/08_rayleigh_extinction.png)
 
+09. Fixed a couple of flipped orientation bugs. Camera vertical axis was flipped but this wasn't visible because the UV coordinate system on the sphere was also flipped vertically and the planet was at Y=0. The UV coordinate system was also flipped horizontally which is visible (look at Continental US).
+
+![09_fixed_flips.png](images/09_fixed_flips.png)
+
 # Notes
 
 Despite many available sources on simulating atmospheric scattering, one of the challenges I have encountered has been cross referencing sources. Everyone has their own coefficients or alterations to equations.

@@ -31,7 +31,7 @@ type Hit struct {
 
 var (
 	NoHit             = Hit{nil, 1e9}
-	SunlightDir       = Vector3{3, 5, 1}.Normalize()
+	SunlightDir       = Vector3{3, -5, 1}.Normalize()
 	SunlightIntensity = 3.0
 
 	// Rayleight extinction coefficients computed for R, G and B wavelengths.
@@ -125,8 +125,8 @@ func (s Sphere) UV(wp Vector3) Vector3 {
 	p = p.Sub(s.Origin)
 	u := math.Atan2(p.Z, p.X)
 	v := math.Atan2(p.Y, Vector3{p.X, 0, p.Z}.Length())
-	u = 1 - (u+math.Pi)/(2*math.Pi)
-	v = (v + math.Pi/2) / math.Pi
+	u = (u + math.Pi) / (2 * math.Pi)
+	v = (math.Pi - (v + math.Pi/2)) / math.Pi
 	return Vector3{u, v, 0}
 }
 
@@ -185,20 +185,24 @@ func main() {
 
 	img := image.NewRGBA(image.Rect(0, 0, ImageWidth, ImageHeight))
 
-	so := Sphere{Vector3{0, 0, 50}, EarthRadius + EarthAtmosphereHeight, Identity()}
-	si := Sphere{Vector3{0, 0, 50}, EarthRadius, Rotate(Vector3{0, 1, 0}, -3.1)}
+	// World space -> Camera space
+	// Increase World X -> Move right in the camera
+	// Increase World Y -> Move up in the camera
+	// Increase World Z -> Move away from the camera (into screen)
+	so := Sphere{Vector3{0, 0, 0}, EarthRadius + EarthAtmosphereHeight, Identity()}
+	si := Sphere{Vector3{0, 0, 0}, EarthRadius, Rotate(Vector3{0, 1, 0}, -0.5)}
 
 	for y := 0; y < ImageHeight; y++ {
 		for x := 0; x < ImageWidth; x++ {
 			var dir Vector3
 			dir.X = (float64(x-ImageWidth/2) / (ImageWidth / 2)) * (float64(ImageWidth) / ImageHeight)
-			dir.Y = float64(y-ImageHeight/2) / (ImageHeight / 2)
+			dir.Y = float64(ImageHeight/2-y) / (ImageHeight / 2)
 			dir.Z = 5
 
 			c := Color{0, 0, 0, 1}
 			r := Ray{Vector3{0, 0, -40 * 1000 * 1000}, dir.Normalize()}
 
-			// Does it hit the planet out atmosphere?
+			// Does it hit the planet outer atmosphere?
 			ho := so.Intersect(r)
 			if ho != NoHit {
 				// Advance along ray very slightly to avoid intersecting
