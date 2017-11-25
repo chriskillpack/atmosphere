@@ -8,7 +8,7 @@ import (
 const minNormal = 2.2250738585072014E-308 // Smallest positive normal value of type float64
 
 func TestIntegrator(t *testing.T) {
-	fn := func(t float64) float64 {
+	fn := func(t, _ float64) float64 {
 		return math.Exp(-(t * t * t * t))
 	}
 	res := numIntegrate(fn, -2, 2, 1000)
