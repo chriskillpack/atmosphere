@@ -46,6 +46,8 @@ var (
 	MieDensityScale = 0.1
 )
 
+var debugIntersect bool
+
 type Shape interface {
 	// Test if the world space ray hit the object
 	Intersect(Ray) Hit
@@ -137,16 +139,16 @@ func (s Sphere) Normal(wp Vector3) Vector3 {
 }
 
 // Numerical integrator using the trapezoidal rule
-// Integrates fn(x) over the domain [a,b] in n steps
-func numIntegrate(fn func(float64) float64, a, b float64, n int) float64 {
+// Integrates scalar function fn(x) over the domain [a,b] in n steps
+func numIntegrate(fn func(_, _ float64) float64, a, b float64, n int) float64 {
 	dx := (b - a) / float64(n-1)
 
 	var area float64
 	x := a
-	prevfn := fn(x)
+	prevfn := fn(x, dx)
 	for i := 1; i < n; i++ {
 		newx := x + dx
-		newfn := fn(newx)
+		newfn := fn(newx, dx)
 		area += prevfn + newfn
 
 		x = newx
@@ -154,6 +156,25 @@ func numIntegrate(fn func(float64) float64, a, b float64, n int) float64 {
 	}
 
 	return (area * dx) * 0.5
+}
+
+// Same as numIntegrate but integrates a vector function fn(x)
+func numIntegrateV(fn func(_, _ float64) Vector3, a, b float64, n int) Vector3 {
+	dx := (b - a) / float64(n-1)
+
+	var area Vector3
+	x := a
+	prevfn := fn(x, dx)
+	for i := 1; i < n; i++ {
+		newx := x + dx
+		newfn := fn(newx, dx)
+		area = area.Add(prevfn.Add(newfn))
+
+		x = newx
+		prevfn = newfn
+	}
+
+	return area.Multiply(dx * 0.5)
 }
 
 func clamp(x, min, max float64) float64 {
@@ -203,6 +224,20 @@ func main() {
 			r := Ray{Vector3{0, 0, -40 * 1000 * 1000}, dir.Normalize()}
 
 			// Does it hit the planet outer atmosphere?
+			debugIntersect = x == 320 && (y == 400 || y == 80 || y == 240)
+			debugIntersect = false
+			if debugIntersect {
+				fmt.Printf("y %v\n", y)
+			}
+
+			// Ray definitions
+			// r - the starting ray from the camera into the scene
+			// ri - from the hit point on outer atmosphere this ray is in the same direction
+			//   as r. used to find if the view ray hits the planet or exits the atmosphere
+			// rs - ray from a point in the atmosphere back towards the sun
+			// rc - ray from a point back towards the camera
+
+			// Does it hit the planet outer atmosphere?
 			ho := so.Intersect(r)
 			if ho != NoHit {
 				// Advance along ray very slightly to avoid intersecting
@@ -227,6 +262,7 @@ func main() {
 					n := si.Normal(cp)
 					n = si.Transform.MulDirection(n)
 
+					// Some temporary lighting from the sun (this needs to be tweaked)
 					l := math.Max(0, -n.Dot(SunlightDir)) * SunlightIntensity
 
 					// Apply sunlight amount to earth albedo texture
@@ -244,17 +280,72 @@ func main() {
 
 				// Compute optical length along the ray
 				// Using https://developer.nvidia.com/gpugems/GPUGems2/gpugems2_chapter16.html as a guide
-				optLengthFn := func(t float64) float64 {
-					p := ri.Direction.Multiply(t).Add(ri.Origin)
-					h := (p.Sub(si.Origin).Length() - si.Radius) / (so.Radius - si.Radius)
-					return math.Exp(-h / RayleighDensityScale)
+				optLengthFn := func(ray Ray) func(t, dx float64) float64 {
+					return func(t, _ float64) float64 {
+						p := ray.Direction.Multiply(t).Add(ray.Origin)
+						h := (p.Sub(si.Origin).Length() - si.Radius) / (so.Radius - si.Radius)
+						return math.Exp(-h / RayleighDensityScale)
+					}
 				}
-				optLength := numIntegrate(optLengthFn, 0, olE, 5)
 
-				// Perform extinction due to absorbtion and outscattering
-				c.R = c.R * math.Exp(-RayleighExtinction.R*optLength)
-				c.G = c.G * math.Exp(-RayleighExtinction.G*optLength)
-				c.B = c.B * math.Exp(-RayleighExtinction.B*optLength)
+				// First attempt at computing in-scattering term
+				inScatterFn := func(t, dx float64) Vector3 {
+					p := ri.Direction.Multiply(t).Add(ri.Origin)
+
+					// First off, is this point in the shadow of the planet?
+					rshd := Ray{p, Vector3{-SunlightDir.X, -SunlightDir.Y, -SunlightDir.Z}}
+					rshdHit := si.Intersect(rshd)
+					if rshdHit != NoHit {
+						// Yes, no contributions (for now)
+						if debugIntersect {
+							fmt.Printf("In shadow of planet\n")
+						}
+					} else {
+						// Fire a ray from p towards the sun, see how far to the outer atmosphere
+						rs := Ray{p, Vector3{-SunlightDir.X, -SunlightDir.Y, -SunlightDir.Z}}
+						rsHit := so.Intersect(rs)
+						if rsHit != NoHit {
+							// Compute optical length along the sunlight ray from p to the edge of the atmosphere
+							sunOptLength := numIntegrate(optLengthFn(rs), 0, rsHit.T, 5)
+
+							// Determine how much sunlight reaches the point. It gets attenuated as it
+							// passes through the atmosphere. To keep things simple We ignore in scattering
+							// events along this path.
+							fudge := 1e-5 // TODO - Can I eliminate this?
+							sunColor := Vector3{
+								SunlightIntensity * math.Exp(-RayleighExtinction.R*sunOptLength) * fudge,
+								SunlightIntensity * math.Exp(-RayleighExtinction.G*sunOptLength) * fudge,
+								SunlightIntensity * math.Exp(-RayleighExtinction.B*sunOptLength) * fudge,
+							}
+
+							// Compute contribution of sunlight to path
+							cosT := r.Direction.Dot(SunlightDir)
+							scatPhase := (3 / (16.0 * math.Pi)) * (cosT*cosT + 1)
+							contrib := sunColor.Multiply(scatPhase)
+
+							// It undergoes extinction on the path segment
+							// My intuition is to use the step size between integration samples as the distance
+							// travelled because we are accumulating in-scattering events along the entire path.
+							// TODO - verify
+							return Vector3{
+								contrib.X * math.Exp(-RayleighExtinction.R*dx),
+								contrib.Y * math.Exp(-RayleighExtinction.G*dx),
+								contrib.Z * math.Exp(-RayleighExtinction.B*dx),
+							}
+						} else {
+							// Calling out an exceptional case - this should never be reached
+							// TODO: we are getting here, this needs to be debugged
+							// fmt.Printf("What am I doing here?\n")
+						}
+					}
+					return Vector3{}
+				}
+				inScatter := numIntegrateV(inScatterFn, 0, olE, 50)
+				inScatterCol := Color{inScatter.X, inScatter.Y, inScatter.Z, 1}
+
+				// Final color = planet color * Fex + Fin
+				// TODO - include Fex term
+				c = c.AddRGB(inScatterCol)
 			}
 			img.Set(x, y, c.Pack())
 		}
